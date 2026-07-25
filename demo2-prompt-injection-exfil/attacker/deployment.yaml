@@ -1,0 +1,40 @@
+# The attacker's collection server, in its own namespace to make the trust
+# boundary explicit. Code mounted from a ConfigMap (created by the run script).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: attacker
+  labels: { purpose: adversary }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: listener
+  namespace: attacker
+  labels: { app: listener }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: listener } }
+  template:
+    metadata:
+      labels: { app: listener }
+    spec:
+      containers:
+        - name: listener
+          image: python:3.12-slim
+          command: ["python", "/app/listener.py"]
+          ports: [{ containerPort: 8080 }]
+          volumeMounts:
+            - { name: code, mountPath: /app, readOnly: true }
+      volumes:
+        - name: code
+          configMap: { name: listener-code }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: listener
+  namespace: attacker
+spec:
+  selector: { app: listener }
+  ports: [{ port: 8080, targetPort: 8080 }]

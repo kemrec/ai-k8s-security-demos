@@ -1,0 +1,23 @@
+# Reference only (needs a real GPU node + NVIDIA GPU Operator).
+# This is the config that turns ONE physical GPU into N schedulable "replicas"
+# via time-slicing. Note what it does NOT give you: memory or fault isolation
+# between those replicas. Anything sharing these replicas shares VRAM.
+#
+# For multi-tenant isolation use MIG instead (renameByDefault / migStrategy),
+# which exposes hardware-isolated resources like nvidia.com/mig-1g.10gb.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: time-slicing-config
+  namespace: gpu-operator
+data:
+  any: |-
+    version: v1
+    sharing:
+      timeSlicing:
+        # failRequestsGreaterThanOne: true rejects pods asking for >1 replica,
+        # a small guardrail — but it is NOT isolation.
+        failRequestsGreaterThanOne: true
+        resources:
+          - name: nvidia.com/gpu
+            replicas: 4      # 1 physical GPU advertised as 4 shared slices

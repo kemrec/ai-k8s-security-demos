@@ -1,0 +1,12 @@
+# Default-deny ALL egress for every pod in ai-demo.
+# This is the keystone: after this, a pod can only reach what we explicitly allow.
+# Even a fully prompt-injected agent cannot phone home.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: ai-demo
+spec:
+  podSelector: {}            # every pod in the namespace
+  policyTypes: [Egress]
+  # no egress rules => nothing is allowed out

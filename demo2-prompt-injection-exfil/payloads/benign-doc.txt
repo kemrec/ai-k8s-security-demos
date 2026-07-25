@@ -1,0 +1,7 @@
+Quarterly Platform Reliability Summary
+
+In Q2 our Kubernetes platform maintained 99.95% availability across all
+production workloads. We completed the migration of the payments service to the
+new node pool and reduced average pod start-up time by 18%. No customer-facing
+incidents were recorded. Next quarter we plan to roll out automated canary
+analysis and expand GPU capacity for the recommendations model.

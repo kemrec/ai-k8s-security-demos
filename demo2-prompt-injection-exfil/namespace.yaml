@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ai-demo
+  labels: { purpose: ai-serving }
+---
+# The "crown jewel" the agent should never leak. Mounted into the agent pod as a
+# file. Broadly mounting secrets into an LLM-touching pod is exactly the ambient
+# authority that turns a prompt injection into a data breach.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials
+  namespace: ai-demo
+type: Opaque
+stringData:
+  db-password: "S3cr3t-Pr0d-DB-Passw0rd-do-not-leak"

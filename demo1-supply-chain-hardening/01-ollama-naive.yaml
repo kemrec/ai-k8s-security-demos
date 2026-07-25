@@ -1,0 +1,54 @@
+# Demo 1 — NAIVE / INSECURE Ollama deployment.
+#
+# This is how AI serving pods too often ship. It is representative of real GPU
+# serving pods, which are frequently run `privileged` to reach /dev/nvidia*.
+# Everything wrong here also applies to a GPU pod — the fix is identical.
+#
+#   * runs as root (uid 0)                  -> container escape == node compromise
+#   * privileged: true                      -> full host device access
+#   * writable root filesystem              -> attacker can drop tools / persist
+#   * no dropped capabilities               -> CAP_NET_RAW, CAP_SYS_* available
+#   * no seccomp profile                    -> full syscall surface
+#   * no resource limits                    -> one pod can starve the GPU/node (DoS)
+#   * exposed with no auth in front         -> see CVE-2025-63389 (Ollama auth bypass)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama-naive
+  namespace: demo1
+  labels: { app: ollama-naive }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: ollama-naive } }
+  template:
+    metadata:
+      labels: { app: ollama-naive }
+    spec:
+      containers:
+        - name: ollama
+          image: ollama/ollama:0.6.5
+          env:
+            - name: OLLAMA_HOST
+              value: "0.0.0.0:11434"
+          ports:
+            - containerPort: 11434
+          securityContext:
+            privileged: true         # <— the single most dangerous line in AI infra manifests
+            runAsUser: 0
+          # NOTE: no resources block, no readOnlyRootFilesystem, no seccomp. On purpose.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-naive
+  namespace: demo1
+spec:
+  selector: { app: ollama-naive }
+  ports:
+    - port: 11434
+      targetPort: 11434

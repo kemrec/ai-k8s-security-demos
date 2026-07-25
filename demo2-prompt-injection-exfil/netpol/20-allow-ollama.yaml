@@ -1,0 +1,18 @@
+# Allow the agent to reach ONLY the Ollama model server, on its port.
+# This is the least-privilege egress the agent legitimately needs. The attacker's
+# listener is deliberately NOT in this allow-list, so exfiltration is denied.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-agent-to-ollama
+  namespace: ai-demo
+spec:
+  podSelector:
+    matchLabels: { app: agent }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: { app: ollama }
+      ports:
+        - { protocol: TCP, port: 11434 }

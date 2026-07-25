@@ -1,0 +1,58 @@
+# The vulnerable agent. No custom image / registry needed: we run the stock
+# python:3.12-slim image and mount agent.py from a ConfigMap (created by the
+# run script with `kubectl create configmap agent-code --from-file=agent.py`).
+#
+# The Secret is mounted as a file at /etc/secret — this is the ambient authority
+# the prompt injection abuses. In the DEFENDED phase we do NOT remove the mount;
+# we contain the damage at the network layer instead (defense in depth).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent
+  namespace: ai-demo
+  labels: { app: agent }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: agent } }
+  template:
+    metadata:
+      labels: { app: agent }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: agent
+          image: python:3.12-slim
+          command: ["python", "/app/agent.py"]
+          env:
+            - { name: OLLAMA_URL, value: "http://ollama.ai-demo.svc.cluster.local:11434" }
+            - { name: MODEL,      value: "llama3.2:1b" }
+            - { name: SECRET_PATH, value: "/etc/secret/db-password" }
+          ports: [{ containerPort: 8000 }]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: code,   mountPath: /app,        readOnly: true }
+            - { name: secret, mountPath: /etc/secret, readOnly: true }
+      volumes:
+        - name: code
+          configMap: { name: agent-code }
+        - name: secret
+          secret: { secretName: db-credentials }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent
+  namespace: ai-demo
+spec:
+  type: NodePort
+  selector: { app: agent }
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30080   # reachable from your laptop at http://localhost:30080

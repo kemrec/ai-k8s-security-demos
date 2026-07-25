@@ -1,0 +1,69 @@
+# Demo 1 — HARDENED Ollama deployment.
+#
+# Same image, same model, same functionality — but the blast radius of a
+# compromise (RCE via a poisoned model, an SSRF, a serving-engine CVE) is
+# collapsed. The model still answers; the attacker gets almost nothing.
+#
+# This is a Pod Security Standard "restricted"-compatible spec. On a GPU pod
+# you would ADD `resources.limits: nvidia.com/gpu: 1` (or a MIG profile such as
+# nvidia.com/mig-1g.10gb) and, for true multi-tenant isolation, a Kata/gVisor
+# runtimeClassName — but you would NOT relax any of the controls below.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama-hardened
+  namespace: demo1
+  labels: { app: ollama-hardened }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: ollama-hardened } }
+  template:
+    metadata:
+      labels: { app: ollama-hardened }
+    spec:
+      # runtimeClassName: kata   # <- uncomment on a Kata/gVisor node for kernel-level isolation
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ollama
+          image: ollama/ollama:0.6.5
+          env:
+            - name: OLLAMA_HOST
+              value: "0.0.0.0:11434"
+            - name: HOME
+              value: /home/nonroot        # writable emptyDir; readOnly rootfs otherwise
+          ports:
+            - containerPort: 11434
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: { cpu: "500m", memory: "1Gi" }
+            limits:   { cpu: "2",    memory: "4Gi" }   # bound the DoS blast radius
+          volumeMounts:
+            - { name: home, mountPath: /home/nonroot }
+            - { name: tmp,  mountPath: /tmp }
+      volumes:
+        - name: home
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-hardened
+  namespace: demo1
+spec:
+  selector: { app: ollama-hardened }
+  ports:
+    - port: 11434
+      targetPort: 11434

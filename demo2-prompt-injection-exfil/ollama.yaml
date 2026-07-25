@@ -1,0 +1,51 @@
+# Ollama model server for Demo 2, in ai-demo namespace.
+# Hardened per Demo 1's lessons (non-root, read-only rootfs, dropped caps).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: ai-demo
+  labels: { app: ollama }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: ollama } }
+  template:
+    metadata:
+      labels: { app: ollama }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: ollama
+          image: ollama/ollama:0.6.5
+          env:
+            - { name: OLLAMA_HOST, value: "0.0.0.0:11434" }
+            - { name: HOME, value: /home/nonroot }
+          ports: [{ containerPort: 11434 }]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: "500m", memory: "1Gi" }
+            limits:   { cpu: "2",    memory: "4Gi" }
+          volumeMounts:
+            - { name: home, mountPath: /home/nonroot }
+            - { name: tmp,  mountPath: /tmp }
+      volumes:
+        - { name: home, emptyDir: {} }
+        - { name: tmp,  emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: ai-demo
+  labels: { app: ollama }
+spec:
+  selector: { app: ollama }
+  ports: [{ port: 11434, targetPort: 11434 }]
