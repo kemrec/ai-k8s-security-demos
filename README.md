@@ -56,32 +56,6 @@ cd cluster && ./teardown.sh
 
 Ya da `make setup && make demo1 && make demo2 && make clean`.
 
-## Neden bu iki demo "tam konu içinde"?
-
-Konuşma "AI/GPU workload'ları K8s'te nasıl çalışır" ekseninde. İki demo bu
-akışın en kritik güvenlik kırılganlıklarını **canlı** gösteriyor:
-
-1. **Nasıl paketlenip dağıtılıyor?** → image + model artifact = tedarik zinciri.
-   Bir modeli *yüklemek* bile kod çalıştırabilir (Demo 1). Serving pod'ları
-   çoğunlukla privileged çalışır; sertleştirme reçetesi GPU'da da aynıdır.
-2. **Nasıl servis edilip tüketiliyor?** → serving API + agent + ağ. LLM
-   kandırıldığında pod'un ambient authority'si (mount'lu secret) sızıntıya
-   dönüşür; K8s egress NetworkPolicy bunu kontrol altına alır (Demo 2).
-
-GPU'ya özgü izolasyon (time-slicing vs MIG, VRAM residue, Kata/gVisor) sunumda
-işlenir ve bonus script ile pekiştirilir; ilkeler (izolasyon, least-privilege,
-egress kontrolü) CPU demolarıyla birebir aynıdır.
-
-## Sahne güvenliği ipuçları
-
-- Her şeyi **konuşmadan önce** kurun ve modelleri çekin (egress kesilince model
-  çekilemez).
-- `cluster/verify-netpol.sh` yeşilse Demo 2 punchline'ı çalışır.
-- Küçük modeller olasılıksaldır: enjeksiyon uymazsa 1-2 kez tekrar gönderin veya
-  `MODEL=qwen2.5:1.5b`. Agent asla uydurmaz; uymayınca dürüstçe raporlar.
-- Saldırgan terminalini (`listener` logları) ekranın köşesinde açık tutun; secret
-  oraya düşünce etki net görünür.
-
 ## Sorumluluk reddi
 
 Tüm payload'lar **zararsızdır** (reverse shell yerine bir dosyaya yazar / log basar).
