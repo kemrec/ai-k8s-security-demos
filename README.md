@@ -1,40 +1,40 @@
-# AI on Kubernetes — Güvenlik Demoları
+# AI on Kubernetes — Security Demos
 
-> "AI with Containers: How Do AI and GPU Workloads Run on Kubernetes?" konuşması
-> için canlı demo kiti. **Cloud Native Ankara.** Güvenlik bakış açısıyla.
+> Live demo kit for the talk "AI with Containers: How Do AI and GPU Workloads
+> Run on Kubernetes?" **Cloud Native Ankara.** Told through a security lens.
 
-İki zorunlu demo **tamamen local** çalışır (kind + Docker, **GPU gerektirmez**,
-CPU yeterli) ve hafif **Ollama** modelleri kullanır. Bir de gerçek GPU isteyen
-bonus vardır.
+Both required demos run **fully locally** (kind + Docker, **no GPU required**,
+CPU is enough) and use lightweight **Ollama** models. There's also a bonus
+that requires a real GPU.
 
-## İçindekiler
+## Contents
 
-| Klasör | Demo | Güvenlik teması |
+| Folder | Demo | Security theme |
 |--------|------|-----------------|
-| `demo1-supply-chain-hardening/` | **Truva modeli + pod sertleştirme** | Supply chain (image + model), runtime hardening — OWASP LLM03 |
-| `demo2-prompt-injection-exfil/`  | **Prompt injection → veri sızıntısı, NetworkPolicy ile durdurma** | Prompt injection, veri ifşası, egress izolasyonu — OWASP LLM01/LLM02 |
-| `bonus-gpu-vram-residue/` | (opsiyonel, gerçek GPU) time-slicing izolasyon eksikliği | GPU multi-tenant izolasyonu (MIG vs time-slicing) |
-| `cluster/` | kind + Calico kurulumu, NetworkPolicy smoke-test | Altyapı |
+| `demo1-supply-chain-hardening/` | **Trojan model + pod hardening** | Supply chain (image + model), runtime hardening — OWASP LLM03 |
+| `demo2-prompt-injection-exfil/`  | **Prompt injection → data exfiltration, stopped with NetworkPolicy** | Prompt injection, data exposure, egress isolation — OWASP LLM01/LLM02 |
+| `bonus-gpu-vram-residue/` | (optional, real GPU) lack of time-slicing isolation | GPU multi-tenant isolation (MIG vs time-slicing) |
+| `cluster/` | kind + Calico setup, NetworkPolicy smoke test | Infrastructure |
 
-## Ön koşullar
+## Prerequisites
 
-- **Docker** (kind bunun üzerinde çalışır)
+- **Docker** (kind runs on top of this)
 - **kind** (Kubernetes-in-Docker) — https://kind.sigs.k8s.io
 - **kubectl**
-- **python3** (Demo 1 Act 2 için; cluster'sız da çalışır)
-- İsteğe bağlı: **trivy** (image tarama), `pip install safetensors numpy` (safetensors demosu)
-- İnternet: sadece kurulum sırasında (image'lar + hafif model çekilir). Demo
-  akışının kendisi offline çalışır — Demo 2'nin olayı zaten egress'i kesmek.
+- **python3** (for Demo 1 Act 2; also works without a cluster)
+- Optional: **trivy** (image scanning), `pip install safetensors numpy` (for the safetensors demo)
+- Internet: only needed during setup (pulling images + the lightweight model). The
+  demo flow itself runs offline — Demo 2's whole point is cutting off egress anyway.
 
-RAM önerisi: ~8 GB. Modeller: `qwen2.5:0.5b` (Demo 1), `llama3.2:1b` (Demo 2).
+RAM recommendation: ~8 GB. Models: `qwen2.5:0.5b` (Demo 1), `llama3.2:1b` (Demo 2).
 
-## Hızlı başlangıç
+## Quick start
 
 ```bash
-# 0) Cluster + Calico (NetworkPolicy'yi uygulayan CNI)
+# 0) Cluster + Calico (the CNI that enforces NetworkPolicy)
 cd cluster
 ./setup-kind.sh
-./verify-netpol.sh          # 'ENFORCED ✅' görmelisiniz — Demo 2'nin ön koşulu
+./verify-netpol.sh          # you should see 'ENFORCED ✅' — a prerequisite for Demo 2
 cd ..
 
 # 1) Demo 1 — supply chain + hardening
@@ -45,18 +45,46 @@ cd ..
 # 2) Demo 2 — prompt injection -> exfil -> NetworkPolicy
 cd demo2-prompt-injection-exfil
 ./setup-demo2.sh
-# ikinci terminal: kubectl -n attacker logs -f deploy/listener
-./run-demo2-vulnerable.sh   # exfil BAŞARILI 💥
-./run-demo2-defended.sh     # exfil ENGELLENDİ ✅
+# second terminal: kubectl -n attacker logs -f deploy/listener
+./run-demo2-vulnerable.sh   # exfil SUCCEEDS 💥
+./run-demo2-defended.sh     # exfil BLOCKED ✅
 cd ..
 
-# Temizlik
+# Cleanup
 cd cluster && ./teardown.sh
 ```
 
-Ya da `make setup && make demo1 && make demo2 && make clean`.
+Or simply `make setup && make demo1 && make demo2 && make clean`.
 
-## Sorumluluk reddi
+## Why these two demos are "right on topic"
 
-Tüm payload'lar **zararsızdır** (reverse shell yerine bir dosyaya yazar / log basar).
-Sadece kendi local cluster'ınızda, eğitim amacıyla çalıştırın.
+The talk is framed around "how do AI/GPU workloads run on K8s." The two demos
+show, live, the most critical security fault lines in that flow:
+
+1. **How is it packaged and distributed?** → image + model artifact = supply
+   chain. Merely *loading* a model can execute code (Demo 1). Serving pods
+   are frequently run privileged; the hardening recipe is identical on GPU too.
+2. **How is it served and consumed?** → serving API + agent + network. Once
+   the LLM is fooled, the pod's ambient authority (a mounted secret) turns
+   into a leak; a K8s egress NetworkPolicy brings that under control (Demo 2).
+
+GPU-specific isolation (time-slicing vs MIG, VRAM residue, Kata/gVisor) is
+covered in the talk and reinforced with the bonus script; the principles
+(isolation, least privilege, egress control) are identical to the CPU demos.
+
+## Tips for a smooth stage run
+
+- Set everything up and pull the models **before** the talk (once egress is
+  cut off, the model can no longer be pulled).
+- If `cluster/verify-netpol.sh` is green, Demo 2's punchline will work.
+- Small models are probabilistic: if the injection doesn't take, resend it
+  once or twice, or try `MODEL=qwen2.5:1.5b`. The agent never makes things up;
+  if it doesn't comply, it reports so honestly.
+- Keep the attacker terminal (the `listener` logs) open in a corner of the
+  screen; the impact lands clearly the moment the secret shows up there.
+
+## Disclaimer
+
+All payloads are **harmless** (they write to a file / print a log instead of
+opening a reverse shell). Run this only on your own local cluster, for
+educational purposes.
