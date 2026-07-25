@@ -56,33 +56,6 @@ cd cluster && ./teardown.sh
 
 Or simply `make setup && make demo1 && make demo2 && make clean`.
 
-## Why these two demos are "right on topic"
-
-The talk is framed around "how do AI/GPU workloads run on K8s." The two demos
-show, live, the most critical security fault lines in that flow:
-
-1. **How is it packaged and distributed?** → image + model artifact = supply
-   chain. Merely *loading* a model can execute code (Demo 1). Serving pods
-   are frequently run privileged; the hardening recipe is identical on GPU too.
-2. **How is it served and consumed?** → serving API + agent + network. Once
-   the LLM is fooled, the pod's ambient authority (a mounted secret) turns
-   into a leak; a K8s egress NetworkPolicy brings that under control (Demo 2).
-
-GPU-specific isolation (time-slicing vs MIG, VRAM residue, Kata/gVisor) is
-covered in the talk and reinforced with the bonus script; the principles
-(isolation, least privilege, egress control) are identical to the CPU demos.
-
-## Tips for a smooth stage run
-
-- Set everything up and pull the models **before** the talk (once egress is
-  cut off, the model can no longer be pulled).
-- If `cluster/verify-netpol.sh` is green, Demo 2's punchline will work.
-- Small models are probabilistic: if the injection doesn't take, resend it
-  once or twice, or try `MODEL=qwen2.5:1.5b`. The agent never makes things up;
-  if it doesn't comply, it reports so honestly.
-- Keep the attacker terminal (the `listener` logs) open in a corner of the
-  screen; the impact lands clearly the moment the secret shows up there.
-
 ## Disclaimer
 
 All payloads are **harmless** (they write to a file / print a log instead of
