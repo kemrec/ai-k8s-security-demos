@@ -1,79 +1,86 @@
-# Demo 2 — Prompt Injection → Veri Sızıntısı, NetworkPolicy ile Durdurma
+# Demo 2 — Prompt Injection → Data Exfiltration, Stopped with NetworkPolicy
 
-**Güvenlik sorusu:** LLM'i kandırmak *kaçınılmaz* olabilir. Peki model
-kandırıldığında bile veriyi pod'dan **dışarı çıkaramamasını** nasıl garanti
-ederiz?
+**Security question:** Fooling the LLM may be *unavoidable*. So how do we
+guarantee that even when the model is fooled, data still can't get **out** of
+the pod?
 
-Bu, AI'a özgü bir saldırının (prompt injection) klasik bir Kubernetes
-primitifiyle (egress NetworkPolicy) nasıl kontrol altına alındığını gösteren
-uçtan uca bir senaryo. **Savunma katmanlı (defense in depth):** model katmanı
-savunmaları ile altyapı katmanı savunmaları birlikte.
+This is an end-to-end scenario showing how an AI-specific attack (prompt
+injection) gets brought under control by a classic Kubernetes primitive
+(egress NetworkPolicy). **Defense in depth:** model-layer defenses working
+together with infrastructure-layer defenses.
 
-## Mimari
+## Architecture
 
 ```
-  belge ──► agent ──► Ollama (LLM) ──► model çıktısı
-             │                            │
-             │   çıktıda ACTION: EXFIL    │
-             │   satırını arar    ◄───────┘
-             │
-             └─► bulursa: MOUNT EDİLMİŞ SECRET'ı okur ve <url>'e POST eder
+document ──► agent ──► Ollama (LLM) ──► model output
+│ │
+│ looks for an ACTION: │
+│ EXFIL line ◄───────┘
+│
+└─► if found: reads the MOUNTED SECRET and POSTs it to <url>
 ```
 
-- **agent** bir "confused deputy": mount edilmiş bir Secret'a (ambient authority)
-  sahip ve ne yapacağına LLM çıktısı karar veriyor.
-- **attacker** ayrı bir namespace'te; sızan veriyi yakalayan basit bir dinleyici.
-- Kusur mimari — modelin "hatası" değil. OWASP **LLM01** (Prompt Injection) →
-  **LLM02/LLM06** (hassas veri ifşası).
+- The **agent** is a "confused deputy": it holds a mounted Secret (ambient
+  authority), and the LLM's output decides what it does with it.
+- The **attacker** sits in a separate namespace; a simple listener that
+  captures the exfiltrated data.
+- The flaw is architectural — not the model's "fault." OWASP **LLM01** (Prompt
+  Injection) → **LLM02/LLM06** (sensitive data disclosure).
 
-## Ön koşullar
-- kind cluster + **Calico** (NetworkPolicy'yi *uygulayan* CNI). `../cluster/setup-kind.sh` bunu kurar.
-- Sahneye çıkmadan önce mutlaka: `../cluster/verify-netpol.sh` → `ENFORCED ✅` görmelisiniz.
-- Model: `llama3.2:1b` (küçük ama enjeksiyona uyumu yüksek). Alternatif: `qwen2.5:1.5b`.
+## Prerequisites
+- A kind cluster + **Calico** (the CNI that actually *enforces* NetworkPolicy).
+  `../cluster/setup-kind.sh` sets this up.
+- Before going on stage, always check: `../cluster/verify-netpol.sh` → you
+  should see `ENFORCED ✅`.
+- Model: `llama3.2:1b` (small, but complies with the injection reliably).
+  Alternative: `qwen2.5:1.5b`.
 
-## Kurulum (talkten önce bir kez)
+## Setup (once, before the talk)
 ```bash
-./setup-demo2.sh                       # her şeyi kurar + modeli çeker
-kubectl -n attacker logs -f deploy/listener   # ikinci terminalde saldırganın gelen kutusu
+./setup-demo2.sh                       # sets everything up + pulls the model
+kubectl -n attacker logs -f deploy/listener   # the attacker's inbox, in a second terminal
 ```
 
-## Sahne akışı
+## Stage flow
 ```bash
-# FAZ A — savunmasız
+# PHASE A — vulnerable
 ./run-demo2-vulnerable.sh
-#   1) benign belge -> normal özet, hiçbir şey gönderilmez
-#   2) zararlı belge -> model 'ACTION: EXFIL ...' üretir -> agent SECRET'ı sızdırır
-#   => saldırgan terminalinde prod DB parolası belirir 💥
+#   1) benign document -> normal summary, nothing gets sent
+#   2) malicious document -> the model produces 'ACTION: EXFIL ...' -> the agent leaks the SECRET
+#   => the prod DB password shows up in the attacker's terminal 💥
 
-# FAZ B — savunmalı
+# PHASE B — defended
 ./run-demo2-defended.sh
-#   aynı zararlı belge tekrar gönderilir
-#   model yine kanar, agent yine dener AMA egress engellenir => exfil=BLOCKED ✅
+#   the same malicious document is sent again
+#   the model is fooled again, the agent tries again, BUT egress is blocked => exfil=BLOCKED ✅
 ```
 
-## Neden bu punchline güçlü?
-- **Model yine kandırıldı.** Hiçbir şey değişmedi — enjeksiyon çalışıyor.
-- Değişen tek şey **patlama yarıçapı**: `default-deny egress` sayesinde secret
-  pod'u terk edemedi. Agent sadece DNS ve Ollama'ya çıkabiliyor; saldırganın
-  dinleyicisine giden yol kapalı.
-- Ders: prompt injection'ı %100 engelleyemeyebilirsiniz; ama **least-privilege
-  egress + dar secret mount'ları** ile onu zararsız hale getirebilirsiniz.
+## Why this punchline works
+- **The model is fooled again.** Nothing changed — the injection still works.
+- The only thing that changed is the **blast radius**: thanks to
+  `default-deny egress`, the secret couldn't leave the pod. The agent can only
+  reach DNS and Ollama; the path to the attacker's listener is closed.
+- The lesson: you may not be able to block prompt injection 100% of the time,
+  but with **least-privilege egress + tightly scoped secret mounts** you can
+  render it harmless.
 
-## Manifest'lerdeki savunma noktaları
-- `netpol/00-default-deny-egress.yaml` — kilit taşı; her pod için tüm egress kapalı.
-- `netpol/10-allow-dns.yaml` — sadece DNS. (İsim çözmek ≠ bağlanabilmek.)
-- `netpol/20-allow-ollama.yaml` — agent yalnızca Ollama'ya, sadece 11434'e çıkabilir.
-- Ek sertleştirme: Secret'ı bu kadar geniş mount etmemek; egress'i tek tek allow'lamak;
-  runtime'da (Falco/Tetragon) beklenmeyen giden bağlantıları alarma bağlamak.
+## Defense points in the manifests
+- `netpol/00-default-deny-egress.yaml` — the keystone; all egress closed for every pod.
+- `netpol/10-allow-dns.yaml` — DNS only. (Resolving a name ≠ being able to connect to it.)
+- `netpol/20-allow-ollama.yaml` — the agent can only reach Ollama, and only on port 11434.
+- Further hardening: don't mount the Secret this broadly in the first place;
+  allow egress destination by destination; wire unexpected outbound
+  connections up to runtime alerting (Falco/Tetragon).
 
-## Determinizm notu (sahne güvenliği)
-Küçük modeller olasılıksaldır. `llama3.2:1b` bu basit `ACTION:` formatında
-enjeksiyona güvenilir şekilde uyar; yine de uymazsa agent dürüstçe "no tool
-call — nothing sent" yazar (uydurmaz). Uymazsa 1-2 kez tekrar gönderin veya
-`MODEL=qwen2.5:1.5b` kullanın. Ham model çıktısı log'lara basılır; izleyici
-modelin gerçekten zararlı satırı ürettiğini görür.
+## A note on determinism (for a smooth stage run)
+Small models are probabilistic. `llama3.2:1b` reliably complies with the
+injection in this simple `ACTION:` format; even so, if it doesn't comply, the
+agent honestly reports "no tool call — nothing sent" (it never makes things
+up). If it doesn't comply, resend it once or twice, or use
+`MODEL=qwen2.5:1.5b`. The raw model output is printed to the logs, so the
+audience can see the model actually produce the malicious line.
 
-## Temizlik
+## Cleanup
 ```bash
 kubectl delete ns ai-demo attacker
 ```
